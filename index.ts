@@ -3,38 +3,42 @@ import * as storage from "@pulumi/azure-native/storage";
 import * as app from "@pulumi/azure-native/app";
 import * as operationalinsights from "@pulumi/azure-native/operationalinsights";
 import * as resources from "@pulumi/azure-native/resources";
-import * as cosmos from "@pulumi/azure-native/documentdb";
+import * as mongodbatlas from "@pulumi/mongodbatlas";
+
+const cfg = new pulumi.Config();
+const dbPass = cfg.getSecret("dbUserPassword");
+if (!dbPass) throw "dbUserPassword secret is missing!";
 
 const resourceGroup = new resources.ResourceGroup("openblocks", {
   location: "WestEurope",
 });
 
-// Cosmos DB Account
-const cosmosdbAccount = new cosmos.DatabaseAccount("openblocks", {
-  resourceGroupName: resourceGroup.name,
-  databaseAccountOfferType: cosmos.DatabaseAccountOfferType.Standard,
-  kind: cosmos.DatabaseAccountKind.MongoDB,
-  enableFreeTier: true,
-  locations: [
-    {
-      locationName: resourceGroup.location,
-      failoverPriority: 0,
-    },
-  ],
-  consistencyPolicy: {
-    defaultConsistencyLevel: cosmos.DefaultConsistencyLevel.Session,
-  },
+const atlasProject = new mongodbatlas.Project("atlas-project", {
+  orgId: "63cbe6867487fc279b612557",
+  name: "openblocks",
 });
 
-const dbConnString = cosmos
-  .listDatabaseAccountConnectionStringsOutput({
-    accountName: cosmosdbAccount.name,
-    resourceGroupName: resourceGroup.name,
-  })
-  .apply(({ connectionStrings }) => {
-    if (!connectionStrings) throw "No connection strings!";
-    return connectionStrings[0].connectionString;
-  });
+const atlasCluster = new mongodbatlas.Cluster("atlas-cluster", {
+  name: "openblocks",
+  backingProviderName: "AZURE",
+  projectId: atlasProject.id,
+  providerInstanceSizeName: "M0",
+  providerName: "TENANT",
+  providerRegionName: "EUROPE_WEST",
+});
+
+new mongodbatlas.DatabaseUser("atlas-user", {
+  username: "openblocks",
+  projectId: atlasProject.id,
+  roles: [{ roleName: "atlasAdmin", databaseName: "admin" }],
+  authDatabaseName: "admin",
+  password: dbPass,
+});
+
+const dbaddress = atlasCluster.connectionStrings.apply((c) =>
+  c[0].standardSrv.replace("mongodb+srv://", "")
+);
+const dbConnString = pulumi.interpolate`mongodb+srv://openblocks:${dbPass}@${dbaddress}/openblocks?retryWrites=true&w=majority`;
 
 const storageAccount = new storage.StorageAccount("storage", {
   resourceGroupName: resourceGroup.name,
@@ -104,7 +108,7 @@ const containerApp = new app.ContainerApp("openblocks-app", {
       external: true,
       targetPort: 3000,
     },
-    secrets: [{ name: "MONGODB_URI", value: dbConnString }],
+    secrets: [{ name: "mongo-uri", value: dbConnString }],
   },
   template: {
     containers: [
@@ -121,10 +125,7 @@ const containerApp = new app.ContainerApp("openblocks-app", {
             volumeName: "openblocks-volume",
           },
         ],
-        env: [
-          { name: "MONGODB_URI", secretRef: "MONGODB_URI" },
-          { name: "LOCAL_USER_ID", value: "10010" },
-        ],
+        env: [{ name: "MONGODB_URI", secretRef: "mongo-uri" }],
       },
     ],
     scale: {
@@ -139,6 +140,11 @@ const containerApp = new app.ContainerApp("openblocks-app", {
       },
     ],
   },
+});
+
+new mongodbatlas.ProjectIpAccessList("azure-managed-k8s", {
+  projectId: atlasProject.id,
+  ipAddress: containerApp.outboundIpAddresses[0],
 });
 
 export const url = pulumi.interpolate`https://${containerApp.configuration.apply(
