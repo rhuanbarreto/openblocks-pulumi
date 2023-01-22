@@ -27,7 +27,7 @@ const atlasCluster = new mongodbatlas.Cluster("atlas-cluster", {
   providerRegionName: "EUROPE_WEST",
 });
 
-new mongodbatlas.DatabaseUser("atlas-user", {
+const atlasUser = new mongodbatlas.DatabaseUser("atlas-user", {
   username: "openblocks",
   projectId: atlasProject.id,
   roles: [{ roleName: "atlasAdmin", databaseName: "admin" }],
@@ -38,7 +38,7 @@ new mongodbatlas.DatabaseUser("atlas-user", {
 const dbaddress = atlasCluster.connectionStrings.apply((c) =>
   c[0].standardSrv.replace("mongodb+srv://", "")
 );
-const dbConnString = pulumi.interpolate`mongodb+srv://openblocks:${dbPass}@${dbaddress}/openblocks?retryWrites=true&w=majority`;
+const dbConnString = pulumi.interpolate`mongodb+srv://${atlasUser.username}:${dbPass}@${dbaddress}/${atlasCluster.name}?retryWrites=true&w=majority`;
 
 const storageAccount = new storage.StorageAccount("storage", {
   resourceGroupName: resourceGroup.name,
