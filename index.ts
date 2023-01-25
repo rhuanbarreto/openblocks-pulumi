@@ -129,7 +129,7 @@ const containerApp = new app.ContainerApp("openblocks-app", {
       },
     ],
     scale: {
-      minReplicas: 1,
+      minReplicas: 0,
       maxReplicas: 1,
     },
     volumes: [
