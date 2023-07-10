@@ -8,6 +8,6 @@
         "@pulumi/azure-native": "^1.44.0",
         "@pulumi/docker": "^3.0.0",
         "@pulumi/mongodbatlas": "^3.5.2",
-        "@pulumi/pulumi": "^3.0.0"
+        "@pulumi/pulumi": "^3.74.0"
     }
 }
